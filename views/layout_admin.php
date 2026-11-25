@@ -18,6 +18,7 @@ require __DIR__ . '/partials/head.php';
         </div>
         <nav class="admin-nav">
             <a class="admin-link<?= $currentPage === 'admin' ? ' active' : '' ?>"<?= $currentPage === 'admin' ? ' aria-current="page"' : '' ?> href="<?= BASE_URL ?>/index.php?action=admin">Dashboard</a>
+            <a class="admin-link<?= $currentPage === 'users' ? ' active' : '' ?>"<?= $currentPage === 'users' ? ' aria-current="page"' : '' ?> href="<?= BASE_URL ?>/index.php?action=users">Users</a>
             <a class="admin-link" href="<?= BASE_URL ?>/index.php?action=home">Front Office</a>
         </nav>
         <form class="admin-logout-form" method="post" action="<?= BASE_URL ?>/index.php?action=logout">

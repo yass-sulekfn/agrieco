@@ -23,6 +23,7 @@ const SESSION_TIMEOUT = 1800;
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/models/UserModel.php';
 require_once __DIR__ . '/controllers/AuthController.php';
+require_once __DIR__ . '/controllers/UserController.php';
 
 function redirect(string $action, array $params = []): void
 {
@@ -44,6 +45,16 @@ function flattenErrors(array $errors): string
 function inputString(array $source, string $key): string
 {
     return isset($source[$key]) && is_string($source[$key]) ? trim($source[$key]) : '';
+}
+
+function requireAdminAccess(AuthController $authController): void
+{
+    if (!$authController->isAuthenticated()) {
+        setFlash('warning', 'Please log in to continue.');
+        redirect('login');
+    }
+
+    $authController->requireRole('admin');
 }
 
 function render(AuthController $authController, string $view, array $data = [], string $layout = 'layout'): void
@@ -75,6 +86,7 @@ function render(AuthController $authController, string $view, array $data = [], 
 
 try {
     $authController = new AuthController();
+    $userController = new UserController($authController);
 } catch (RuntimeException $e) {
     http_response_code(500);
     exit('Service temporarily unavailable.');
@@ -248,6 +260,251 @@ switch ($action) {
         }
 
         redirect($authController->hasRole('admin') ? 'admin' : 'dashboard');
+        break;
+
+    case 'users':
+        requireAdminAccess($authController);
+
+        $search = inputString($_GET, 'search');
+        $roleFilter = inputString($_GET, 'role');
+        $page = (int) (filter_var($_GET['page'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1);
+        $listData = $userController->listUsers($search, $roleFilter, $page);
+
+        render($authController, 'users/index', [
+            'pageTitle' => 'Users | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Users',
+            'users' => $listData['users'],
+            'filteredTotal' => $listData['total'],
+            'page' => $listData['page'],
+            'perPage' => $listData['perPage'],
+            'totalPages' => $listData['totalPages'],
+            'search' => $listData['search'],
+            'roleFilter' => $listData['role'],
+            'totalUsers' => $userController->countAllUsers(),
+            'roleCounts' => $userController->getRoleCounts(),
+            'roles' => $userController->getRoles(),
+        ], 'layout_admin');
+        break;
+
+    case 'users_show':
+        requireAdminAccess($authController);
+
+        $id = (int) (filter_var($_GET['id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $result = $userController->showUser($id);
+
+        if (!$result['success']) {
+            setFlash('error', flattenErrors($result['errors']));
+            redirect('users');
+        }
+
+        $targetUser = $result['user'];
+        $deleteCheck = $userController->canDeleteUser($targetUser);
+
+        render($authController, 'users/show', [
+            'pageTitle' => 'User Details | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'User Details',
+            'user' => $targetUser,
+            'canDelete' => $deleteCheck['allowed'],
+            'deleteBlockReason' => $deleteCheck['reason'],
+        ], 'layout_admin');
+        break;
+
+    case 'users_create':
+        requireAdminAccess($authController);
+
+        render($authController, 'users/form', [
+            'pageTitle' => 'Add User | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Add User',
+            'isEdit' => false,
+            'roles' => $userController->getRoles(),
+            'errors' => [],
+            'old' => ['username' => '', 'email' => '', 'role' => 'client', 'can_write' => '1'],
+        ], 'layout_admin');
+        break;
+
+    case 'users_store':
+        requireAdminAccess($authController);
+
+        if (!$isPost) {
+            redirect('users_create');
+        }
+
+        $result = $userController->createUser($post);
+
+        if ($result['success']) {
+            setFlash('success', 'User created successfully.');
+            redirect('users');
+        }
+
+        render($authController, 'users/form', [
+            'pageTitle' => 'Add User | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Add User',
+            'isEdit' => false,
+            'roles' => $userController->getRoles(),
+            'errors' => $result['errors'],
+            'old' => [
+                'username' => inputString($post, 'username'),
+                'email' => inputString($post, 'email'),
+                'role' => inputString($post, 'role') ?: 'client',
+                'can_write' => inputString($post, 'can_write') !== '' ? inputString($post, 'can_write') : '1',
+            ],
+        ], 'layout_admin');
+        break;
+
+    case 'users_edit':
+        requireAdminAccess($authController);
+
+        $id = (int) (filter_var($_GET['id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $targetUser = $userController->findById($id);
+
+        if ($targetUser === null) {
+            setFlash('error', 'User not found.');
+            redirect('users');
+        }
+
+        $isLastAdmin = $targetUser->getRole() === 'admin' && $userController->countAdmins() <= 1;
+
+        render($authController, 'users/form', [
+            'pageTitle' => 'Edit User | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Edit User',
+            'isEdit' => true,
+            'userId' => $id,
+            'isLastAdmin' => $isLastAdmin,
+            'roles' => $userController->getRoles(),
+            'errors' => [],
+            'old' => [
+                'username' => $targetUser->getUsername(),
+                'email' => $targetUser->getEmail(),
+                'role' => $targetUser->getRole(),
+                'can_write' => $targetUser->getCanWrite() ? '1' : '0',
+            ],
+        ], 'layout_admin');
+        break;
+
+    case 'users_update':
+        requireAdminAccess($authController);
+
+        if (!$isPost) {
+            redirect('users');
+        }
+
+        $id = (int) (filter_var($_GET['id'] ?? ($post['id'] ?? 0), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $result = $userController->updateUser($id, $post);
+
+        if ($result['success']) {
+            setFlash('success', 'User updated successfully.');
+            redirect($authController->hasRole('admin') ? 'users' : 'dashboard');
+        }
+
+        $targetUser = $userController->findById($id);
+        if ($targetUser === null) {
+            setFlash('error', flattenErrors($result['errors']));
+            redirect('users');
+        }
+
+        $isLastAdmin = $targetUser->getRole() === 'admin' && $userController->countAdmins() <= 1;
+
+        render($authController, 'users/form', [
+            'pageTitle' => 'Edit User | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Edit User',
+            'isEdit' => true,
+            'userId' => $id,
+            'isLastAdmin' => $isLastAdmin,
+            'roles' => $userController->getRoles(),
+            'errors' => $result['errors'],
+            'old' => [
+                'username' => inputString($post, 'username'),
+                'email' => inputString($post, 'email'),
+                'role' => inputString($post, 'role') ?: $targetUser->getRole(),
+                'can_write' => inputString($post, 'can_write') !== '' ? inputString($post, 'can_write') : ($targetUser->getCanWrite() ? '1' : '0'),
+            ],
+        ], 'layout_admin');
+        break;
+
+    case 'users_delete':
+        requireAdminAccess($authController);
+
+        $id = (int) (filter_var($_GET['id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $targetUser = $userController->findById($id);
+
+        if ($targetUser === null) {
+            setFlash('error', 'User not found.');
+            redirect('users');
+        }
+
+        $deleteCheck = $userController->canDeleteUser($targetUser);
+
+        render($authController, 'users/delete', [
+            'pageTitle' => 'Delete User | AgriEco',
+            'currentPage' => 'users',
+            'adminSection' => 'Delete User',
+            'user' => $targetUser,
+            'canDelete' => $deleteCheck['allowed'],
+            'deleteBlockReason' => $deleteCheck['reason'],
+        ], 'layout_admin');
+        break;
+
+    case 'users_destroy':
+        requireAdminAccess($authController);
+
+        if (!$isPost) {
+            redirect('users');
+        }
+
+        $id = (int) (filter_var($_GET['id'] ?? ($post['id'] ?? 0), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $result = $userController->deleteUser($id, $post);
+
+        if ($result['success']) {
+            setFlash('success', 'User deleted successfully.');
+        } else {
+            setFlash('error', flattenErrors($result['errors']));
+        }
+
+        redirect('users');
+        break;
+
+    case 'users_toggle_status':
+        requireAdminAccess($authController);
+
+        if (!$isPost) {
+            redirect('users');
+        }
+
+        $id = (int) (filter_var($post['user_id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0);
+        $result = $userController->toggleStatus($id, $post);
+
+        if ($result['success']) {
+            setFlash('success', 'User status updated successfully.');
+        } else {
+            setFlash('error', flattenErrors($result['errors']));
+        }
+
+        if (inputString($post, 'redirect_to') === 'show' && $id > 0) {
+            redirect('users_show', ['id' => $id]);
+        }
+
+        $redirectParams = [];
+        $search = inputString($post, 'search');
+        $role = inputString($post, 'role');
+        $page = (int) (filter_var($post['page'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1);
+
+        if ($search !== '') {
+            $redirectParams['search'] = $search;
+        }
+        if ($role !== '') {
+            $redirectParams['role'] = $role;
+        }
+        if ($page > 1) {
+            $redirectParams['page'] = $page;
+        }
+
+        redirect('users', $redirectParams);
         break;
 
     default:
