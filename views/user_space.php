@@ -5,13 +5,9 @@ $profileCanWrite = isset($canWrite) ? (bool) $canWrite : $user->getCanWrite();
 $createdRaw = $user->getCreatedAt();
 $createdTimestamp = $createdRaw !== null ? strtotime($createdRaw) : false;
 $createdDisplay = $createdTimestamp !== false ? date('d M Y, H:i', $createdTimestamp) : (string) $createdRaw;
-$ecoLegend = [
-    ['class' => 'eco-a', 'label' => 'Éco A', 'text' => 'Outstanding environmental performance.'],
-    ['class' => 'eco-b', 'label' => 'Éco B', 'text' => 'Very good environmental performance.'],
-    ['class' => 'eco-c', 'label' => 'Éco C', 'text' => 'Average environmental performance.'],
-    ['class' => 'eco-d', 'label' => 'Éco D', 'text' => 'Below average environmental performance.'],
-    ['class' => 'eco-e', 'label' => 'Éco E', 'text' => 'Poor environmental performance.'],
-];
+$errors = $errors ?? [];
+$old = $old ?? [];
+$invalid = static fn(string $field): string => isset($errors[$field]) ? ' is-invalid' : '';
 ?>
 <div class="container">
     <div class="page-header">
@@ -65,17 +61,65 @@ $ecoLegend = [
 
         <article class="card card-accent">
             <div class="card-header">
-                <h2 class="card-title">Éco score legend</h2>
+                <h2 class="card-title">Edit my info</h2>
             </div>
-            <p class="text-muted">Every AgriEco product carries an environmental rating from A to E.</p>
-            <ul style="list-style:none;margin:0;padding:0;display:grid;gap:0.8rem;">
-                <?php foreach ($ecoLegend as $item): ?>
-                    <li class="flex">
-                        <span class="eco-badge <?= $esc($item['class']) ?>"><?= $esc($item['label']) ?></span>
-                        <span><?= $esc($item['text']) ?></span>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
+
+            <?php if (!empty($errors)): ?>
+                <div class="alert alert-error" role="alert">
+                    <ul>
+                        <?php foreach ($errors as $message): ?>
+                            <li><?= $esc($message) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <form method="post" action="<?= BASE_URL ?>/index.php?action=update_profile">
+                <input type="hidden" name="csrf_token" value="<?= $esc($csrfToken ?? '') ?>">
+
+                <div class="form-group">
+                    <label for="edit-username">Username</label>
+                    <input
+                        type="text"
+                        id="edit-username"
+                        name="username"
+                        class="form-control<?= $invalid('username') ?>"
+                        value="<?= $esc($old['username'] ?? $user->getUsername()) ?>"
+                        minlength="3"
+                        maxlength="50"
+                        pattern="[A-Za-z0-9_.\-]+"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-email">Email address</label>
+                    <input
+                        type="email"
+                        id="edit-email"
+                        name="email"
+                        class="form-control<?= $invalid('email') ?>"
+                        value="<?= $esc($old['email'] ?? $user->getEmail()) ?>"
+                        maxlength="150"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-password">New password <small class="text-muted">(leave blank to keep current)</small></label>
+                    <input
+                        type="password"
+                        id="edit-password"
+                        name="password"
+                        class="form-control<?= $invalid('password') ?>"
+                        minlength="8"
+                        autocomplete="new-password"
+                    >
+                    <p class="form-hint">At least 8 characters, with an uppercase letter, a lowercase letter and a digit.</p>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">Save changes</button>
+            </form>
         </article>
     </div>
 </div>

@@ -1,6 +1,7 @@
 <?php
 $errors = $errors ?? [];
 $old = $old ?? ['username' => '', 'email' => '', 'role' => 'client'];
+// Escape every dynamic output with htmlspecialchars() to prevent XSS.
 $esc = static fn($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $roleOptions = [
     'client' => 'Client',

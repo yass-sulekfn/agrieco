@@ -5,10 +5,11 @@ require_once __DIR__ . '/../models/UserModel.php';
 
 class AuthController
 {
+    // Roles a visitor may choose. "admin" is not in this list, so it cannot be self-assigned.
     private const PUBLIC_ROLES = ['client', 'agriculteur', 'association'];
     private const ALL_ROLES = ['agriculteur', 'client', 'association', 'admin'];
     private const SESSION_LIFETIME = 1800;
-    private const LOGIN_URL = '/agrieco/index.php?page=login';
+    private const LOGIN_URL = '/agrieco/index.php?action=login';
     private const DUMMY_HASH = '$2b$10$5K4DgXhuS5A3oAQAs7VGVukB/gZYaDijfN26n8F2sy.8ZK6W7Qete';
 
     private PDO $db;
@@ -25,7 +26,7 @@ class AuthController
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path' => '/',
-                'secure' => !empty($_SERVER['HTTPS']),
+                'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
                 'httponly' => true,
                 'samesite' => 'Lax',
             ]);
@@ -94,6 +95,12 @@ class AuthController
         }
     }
 
+    public function getRedirectAction(): string
+    {
+        // Admins go to the back-office panel; all other roles go to the user dashboard.
+        return $this->hasRole('admin') ? 'admin' : 'dashboard';
+    }
+
     public function canWrite(): bool
     {
         return $this->isAuthenticated() && (int) ($_SESSION['can_write'] ?? 0) === 1;
@@ -151,6 +158,7 @@ class AuthController
             $errors['password_confirm'] = 'Passwords do not match.';
         }
 
+        // Server decides the allowed role and write flag; "admin" can never be chosen at signup.
         if (!in_array($role, self::PUBLIC_ROLES, true)) {
             $errors['role'] = 'Invalid role selected.';
         }
@@ -175,6 +183,7 @@ class AuthController
             return ['success' => false, 'errors' => $errors];
         }
 
+        // Store the hash only. The plain password is never written to the database.
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
         try {
@@ -227,13 +236,16 @@ class AuthController
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch();
 
+        // Unknown email still runs password_verify on a dummy hash, so the response time stays similar.
         $hash = $user['password'] ?? self::DUMMY_HASH;
         $passwordValid = password_verify($password, $hash);
 
+        // One generic message: do not say whether the email exists.
         if (!$user || !$passwordValid) {
             return ['success' => false, 'errors' => ['general' => 'Incorrect email or password.']];
         }
 
+        // Replace the session id so a cookie captured before login cannot be reused.
         session_regenerate_id(true);
 
         unset($_SESSION['csrf_token']);
@@ -248,6 +260,7 @@ class AuthController
 
     public function logout(): void
     {
+        // Drop session data, expire the cookie, then destroy the session on the server.
         $_SESSION = [];
 
         if (ini_get('session.use_cookies')) {
@@ -258,7 +271,7 @@ class AuthController
                 'domain' => $params['domain'],
                 'secure' => $params['secure'],
                 'httponly' => $params['httponly'],
-                'samesite' => $params['samesite'] ?? 'Lax',
+                'samesite' => $params['samesite'] ?: 'Lax',
             ]);
         }
 
@@ -302,6 +315,77 @@ class AuthController
         $stmt->execute(['role' => $role]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    public function updateProfile(array $post): array
+    {
+        $this->requireAuth();
+
+        if (!$this->verifyCsrfToken($post['csrf_token'] ?? null)) {
+            return ['success' => false, 'errors' => ['csrf' => 'Invalid or expired security token.']];
+        }
+
+        $userId = (int) ($_SESSION['user_id'] ?? 0);
+        $errors = [];
+
+        $username = trim((string) ($post['username'] ?? ''));
+        $email = strtolower(trim((string) ($post['email'] ?? '')));
+        $password = (string) ($post['password'] ?? '');
+
+        if ($username === '') {
+            $errors['username'] = 'Username is required.';
+        } elseif (strlen($username) < 3 || strlen($username) > 50) {
+            $errors['username'] = 'Username must be between 3 and 50 characters.';
+        } elseif (!preg_match('/^[A-Za-z0-9_.-]+$/', $username)) {
+            $errors['username'] = 'Username may only contain letters, numbers, dots, hyphens and underscores.';
+        }
+
+        if ($email === '') {
+            $errors['email'] = 'Email is required.';
+        } elseif (strlen($email) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors['email'] = 'Email address is invalid.';
+        }
+
+        if ($password !== '') {
+            if (strlen($password) < 8) {
+                $errors['password'] = 'Password must be at least 8 characters.';
+            } elseif (!preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+                $errors['password'] = 'Password must contain an uppercase letter, a lowercase letter and a digit.';
+            }
+        }
+
+        if (!empty($errors)) {
+            return ['success' => false, 'errors' => $errors];
+        }
+
+        $stmt = $this->db->prepare('SELECT id FROM users WHERE username = :username AND id != :id LIMIT 1');
+        $stmt->execute(['username' => $username, 'id' => $userId]);
+        if ($stmt->fetch()) {
+            $errors['username'] = 'Username is already taken.';
+        }
+
+        $stmt = $this->db->prepare('SELECT id FROM users WHERE email = :email AND id != :id LIMIT 1');
+        $stmt->execute(['email' => $email, 'id' => $userId]);
+        if ($stmt->fetch()) {
+            $errors['email'] = 'Email is already registered.';
+        }
+
+        if (!empty($errors)) {
+            return ['success' => false, 'errors' => $errors];
+        }
+
+        if ($password !== '') {
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $this->db->prepare('UPDATE users SET username = :username, email = :email, password = :password WHERE id = :id');
+            $stmt->execute(['username' => $username, 'email' => $email, 'password' => $hash, 'id' => $userId]);
+        } else {
+            $stmt = $this->db->prepare('UPDATE users SET username = :username, email = :email WHERE id = :id');
+            $stmt->execute(['username' => $username, 'email' => $email, 'id' => $userId]);
+        }
+
+        $_SESSION['username'] = $username;
+
+        return ['success' => true, 'errors' => []];
     }
 
     public function updateUserAccess(array $post): array

@@ -106,7 +106,7 @@ switch ($action) {
 
     case 'register':
         if ($authController->isAuthenticated()) {
-            redirect('dashboard');
+            redirect($authController->getRedirectAction());
         }
 
         $errors = [];
@@ -138,7 +138,7 @@ switch ($action) {
 
     case 'login':
         if ($authController->isAuthenticated()) {
-            redirect($authController->hasRole('admin') ? 'admin' : 'dashboard');
+            redirect($authController->getRedirectAction());
         }
 
         $errors = [];
@@ -155,7 +155,8 @@ switch ($action) {
 
             if ($result['success']) {
                 setFlash('success', 'Welcome back, ' . (string) ($_SESSION['username'] ?? '') . '.');
-                redirect($authController->hasRole('admin') ? 'admin' : 'dashboard');
+                // Admin goes to the admin space; every other role goes to the user dashboard.
+                redirect($authController->getRedirectAction());
             }
 
             $errors = $result['errors'];
@@ -225,6 +226,43 @@ switch ($action) {
             'roleCounts' => $roleCounts,
             'roles' => $roles,
         ], 'layout_admin');
+        break;
+
+    case 'update_profile':
+        if (!$authController->isAuthenticated()) {
+            setFlash('warning', 'Please log in to continue.');
+            redirect('login');
+        }
+
+        if (!$isPost) {
+            redirect('dashboard');
+        }
+
+        $result = $authController->updateProfile($post);
+
+        if ($result['success']) {
+            setFlash('success', 'Your profile has been updated.');
+            redirect('dashboard');
+        }
+
+        $user = $authController->findById((int) $_SESSION['user_id']);
+
+        if ($user === null) {
+            $authController->logout();
+            redirect('login');
+        }
+
+        render($authController, 'user_space', [
+            'pageTitle' => 'Dashboard | AgriEco',
+            'currentPage' => 'dashboard',
+            'user' => $user,
+            'canWrite' => $authController->canWrite(),
+            'errors' => $result['errors'],
+            'old' => [
+                'username' => inputString($post, 'username'),
+                'email' => inputString($post, 'email'),
+            ],
+        ]);
         break;
 
     case 'update_access':
