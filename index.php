@@ -4,18 +4,24 @@ ini_set('session.use_strict_mode', 1);
 ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_samesite', 'Lax');
 
-if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {
+if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
     ini_set('session.cookie_secure', 1);
 }
 
 session_start();
 
+// HTTP Security Headers (sent before any output)
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;");
+
+require_once __DIR__ . '/config/csrf.php';
+
 $timeout = 1800;
 
 if (isset($_SESSION['last_activity'])) {
-
     if (time() - $_SESSION['last_activity'] > $timeout) {
-
         $_SESSION = array();
 
         if (ini_get('session.use_cookies')) {
@@ -42,11 +48,9 @@ if (isset($_SESSION['last_activity'])) {
 
 $_SESSION['last_activity'] = time();
 
-
 $action = $_GET['action'] ?? 'home';
 
 switch ($action) {
-
     case 'home':
         echo "Welcome to Agrieco!";
         break;
@@ -72,4 +76,6 @@ switch ($action) {
         echo "Page not found.";
         break;
 }
+```[cite: 14]
 
+Ready to move on to `SECURITY_TESTS.md` or commit `config/csrf.php` and `index.php` on `feature/security`?
