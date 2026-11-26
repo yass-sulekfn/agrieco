@@ -208,5 +208,192 @@ class AuthController
 
         return (int) $stmt->fetchColumn();
     }
+
+	public function createUser(array $data): bool
+{
+    $db = Database::getInstance()->getConnection();
+
+    $name = trim($data['name'] ?? '');
+    $fam_name = trim($data['fam_name'] ?? '');
+    $phone_num = trim($data['phone_num'] ?? '');
+    $address = trim($data['address'] ?? '');
+    $mail = trim($data['mail'] ?? '');
+    $password = $data['password'] ?? '';
+    $role = $data['role'] ?? 'user';
+    $user_type = $data['user_type'] ?? null;
+
+    if ($name === '' || $fam_name === '' || $phone_num === '' || $mail === '' || $password === '') {
+        throw new InvalidArgumentException("Please fill in all required fields.");
+    }
+
+    if (!filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+        throw new InvalidArgumentException("Please enter a valid email address.");
+    }
+
+    if (strlen($password) < 8) {
+        throw new InvalidArgumentException("Password must contain at least 8 characters.");
+    }
+
+    if (!in_array($role, ['user', 'admin'], true)) {
+        throw new InvalidArgumentException("Invalid user role.");
+    }
+
+    if ($user_type !== null && $user_type !== '' && !in_array($user_type, ['farmer', 'client', 'association'], true)) {
+        throw new InvalidArgumentException("Invalid account type.");
+    }
+
+    if ($this->emailExists($mail)) {
+        throw new InvalidArgumentException("This email is already registered.");
+    }
+
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+    $stmt = $db->prepare(
+        "INSERT INTO users (name, fam_name, phone_num, address, mail, password, role, user_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+
+    return $stmt->execute([
+        $name,
+        $fam_name,
+        $phone_num,
+        $address === '' ? null : $address,
+        $mail,
+        $hashedPassword,
+        $role,
+        $user_type === '' ? null : $user_type
+    ]);
+}
+
+public function updateUser(int $id, array $data): bool
+{
+    $db = Database::getInstance()->getConnection();
+
+    $name = trim($data['name'] ?? '');
+    $fam_name = trim($data['fam_name'] ?? '');
+    $phone_num = trim($data['phone_num'] ?? '');
+    $address = trim($data['address'] ?? '');
+    $mail = trim($data['mail'] ?? '');
+    $password = $data['password'] ?? '';
+    $role = $data['role'] ?? '';
+    $user_type = $data['user_type'] ?? null;
+
+    if ($id <= 0 || $name === '' || $fam_name === '' || $phone_num === '' || $mail === '') {
+        throw new InvalidArgumentException("Please fill in all required fields.");
+    }
+
+    if (!filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+        throw new InvalidArgumentException("Please enter a valid email address.");
+    }
+
+    if (!in_array($role, ['user', 'admin'], true)) {
+        throw new InvalidArgumentException("Invalid user role.");
+    }
+
+    if ($user_type !== null && $user_type !== '' && !in_array($user_type, ['farmer', 'client', 'association'], true)) {
+        throw new InvalidArgumentException("Invalid account type.");
+    }
+
+    if ($this->emailExists($mail, $id)) {
+        throw new InvalidArgumentException("This email is already used by another account.");
+    }
+
+    $stmt = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $stmt->execute([$id]);
+    $oldRole = $stmt->fetchColumn();
+
+    if ($oldRole === false) {
+        throw new InvalidArgumentException("User not found.");
+    }
+
+    if ($oldRole === 'admin' && $role !== 'admin' && $this->countByRole('admin') <= 1) {
+        throw new InvalidArgumentException("You cannot remove the last administrator.");
+    }
+
+    if ($password !== '' && strlen($password) < 8) {
+        throw new InvalidArgumentException("Password must contain at least 8 characters.");
+    }
+
+    if ($password !== '') {
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+        $stmt = $db->prepare(
+            "UPDATE users
+             SET name = ?, fam_name = ?, phone_num = ?, address = ?, mail = ?,
+                 password = ?, role = ?, user_type = ?
+             WHERE id = ?"
+        );
+
+        return $stmt->execute([
+            $name,
+            $fam_name,
+            $phone_num,
+            $address === '' ? null : $address,
+            $mail,
+            $hashedPassword,
+            $role,
+            $user_type === '' ? null : $user_type,
+            $id
+        ]);
+    }
+
+    $stmt = $db->prepare(
+        "UPDATE users
+         SET name = ?, fam_name = ?, phone_num = ?, address = ?, mail = ?,
+             role = ?, user_type = ?
+         WHERE id = ?"
+    );
+
+    return $stmt->execute([
+        $name,
+        $fam_name,
+        $phone_num,
+        $address === '' ? null : $address,
+        $mail,
+        $role,
+        $user_type === '' ? null : $user_type,
+        $id
+    ]);
+}
+
+public function deleteUser(int $id): bool
+{
+    $db = Database::getInstance()->getConnection();
+
+    if ($id <= 0) {
+        throw new InvalidArgumentException("Invalid user ID.");
+    }
+
+    $stmt = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $stmt->execute([$id]);
+    $role = $stmt->fetchColumn();
+
+    if ($role === false) {
+        throw new InvalidArgumentException("User not found.");
+    }
+
+    if ($role === 'admin' && $this->countByRole('admin') <= 1) {
+        throw new InvalidArgumentException("You cannot delete the last administrator.");
+    }
+
+    $stmt = $db->prepare("DELETE FROM users WHERE id = ?");
+
+    return $stmt->execute([$id]);
+}
+
+private function emailExists(string $mail, ?int $excludeId = null): bool
+{
+    $db = Database::getInstance()->getConnection();
+
+    if ($excludeId === null) {
+        $stmt = $db->prepare("SELECT id FROM users WHERE mail = ?");
+        $stmt->execute([$mail]);
+    } else {
+        $stmt = $db->prepare("SELECT id FROM users WHERE mail = ? AND id != ?");
+        $stmt->execute([$mail, $excludeId]);
+    }
+
+    return $stmt->fetch() !== false;
+}
 }
 

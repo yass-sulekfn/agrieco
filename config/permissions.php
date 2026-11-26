@@ -45,6 +45,10 @@ return [
         'don_propose' => ['agriculteur'],
         'don_suivi' => ['agriculteur'],
         'don_*' => ['association'],
+
+	'addUser' => ['admin'],
+	'editUser' => ['admin'],
+	'deleteUser' => ['admin'],
     ],
 
     'menu' => [

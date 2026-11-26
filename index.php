@@ -133,9 +133,121 @@ switch ($action) {
         $totalUsers = $controller->countAllUsers();
         $totalAdmins = $controller->countByRole('admin');
         $totalRegular = $controller->countByRole('user');
+        $csrfToken = getCsrfToken();
 
         require __DIR__ . '/views/admin_space.php';
         break;
+
+    case 'addUser':
+
+        AccessControl::requireRole('admin');
+
+        $error = '';
+        $old = [
+            'name' => '',
+            'fam_name' => '',
+            'phone_num' => '',
+            'address' => '',
+            'mail' => '',
+            'role' => 'user',
+            'user_type' => ''
+        ];
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            try {
+                $controller->createUser($_POST);
+
+                $_SESSION['message'] = 'User created successfully.';
+                header('Location: index.php?action=admin');
+                exit;
+
+            } catch (InvalidArgumentException $e) {
+                $error = $e->getMessage();
+                $old = $_POST;
+            }
+        }
+
+        $csrfToken = getCsrfToken();
+
+        require __DIR__ . '/views/user_add.php';
+        break;
+
+    case 'editUser':
+
+        AccessControl::requireRole('admin');
+
+        $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
+        }
+
+        if (!$id || $id <= 0) {
+            http_response_code(400);
+            exit('Invalid user ID.');
+        }
+
+        $editUser = $controller->findById($id);
+
+        if (!$editUser) {
+            http_response_code(404);
+            exit('User not found.');
+        }
+
+        $error = '';
+        $old = [];
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            try {
+                $controller->updateUser($id, $_POST);
+
+                $_SESSION['message'] = 'User updated successfully.';
+                header('Location: index.php?action=admin');
+                exit;
+
+            } catch (InvalidArgumentException $e) {
+                $error = $e->getMessage();
+                $old = $_POST;
+            }
+        }
+
+        $csrfToken = getCsrfToken();
+
+        require __DIR__ . '/views/user_edit.php';
+        break;
+
+    case 'deleteUser':
+
+        AccessControl::requireRole('admin');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            exit('Method Not Allowed');
+        }
+
+        $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
+
+        if (!$id || $id <= 0) {
+            http_response_code(400);
+            exit('Invalid user ID.');
+        }
+
+        if ($id === (int) $_SESSION['user_id']) {
+            $_SESSION['message'] = 'You cannot delete your own account.';
+            header('Location: index.php?action=admin');
+            exit;
+        }
+
+        try {
+            $controller->deleteUser($id);
+            $_SESSION['message'] = 'User deleted successfully.';
+
+        } catch (InvalidArgumentException $e) {
+            $_SESSION['message'] = $e->getMessage();
+        }
+
+        header('Location: index.php?action=admin');
+        exit;
 
     case 'logout':
 
