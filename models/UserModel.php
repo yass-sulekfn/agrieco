@@ -34,17 +34,18 @@ class UserModel
         $this->role = $role;
         $this->user_type = $user_type;
     }
-    //getters
+
     public function getId() { return $this->id; }
     public function getName() { return $this->name; }
     public function getFamName() { return $this->fam_name; }
+    public function getUsername() { return trim($this->name . " " . $this->fam_name); }
     public function getPhoneNum() { return $this->phone_num; }
     public function getAddress() { return $this->address; }
     public function getMail() { return $this->mail; }
     public function getPassword() { return $this->password; }
     public function getRole() { return $this->role; }
     public function getUserType() { return $this->user_type; }
-    //setters
+
     public function setId($id) { $this->id = $id; }
     public function setName($name) { $this->name = $name; }
     public function setFamName($fam_name) { $this->fam_name = $fam_name; }
