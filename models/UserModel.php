@@ -12,18 +12,9 @@ class UserModel
     private $password;
     private $role;
     private $user_type;
+    private $created_at;
 
-    public function __construct(
-        $id = null,
-        $name = "",
-        $fam_name = "",
-        $phone_num = "",
-        $address = null,
-        $mail = "",
-        $password = "",
-        $role = "user",
-        $user_type = null
-    ) {
+    public function __construct($id = null,$name = "",$fam_name = "",$phone_num = "",$address = null,$mail = "",$password = "",$role = "user",$user_type = null,$created_at = null) {
         $this->id = $id;
         $this->name = $name;
         $this->fam_name = $fam_name;
@@ -33,18 +24,22 @@ class UserModel
         $this->password = $password;
         $this->role = $role;
         $this->user_type = $user_type;
+        $this->created_at = $created_at;
     }
-    //getters
+
     public function getId() { return $this->id; }
     public function getName() { return $this->name; }
     public function getFamName() { return $this->fam_name; }
+    public function getUsername() { return trim($this->name . " " . $this->fam_name); }
     public function getPhoneNum() { return $this->phone_num; }
     public function getAddress() { return $this->address; }
     public function getMail() { return $this->mail; }
     public function getPassword() { return $this->password; }
     public function getRole() { return $this->role; }
     public function getUserType() { return $this->user_type; }
-    //setters
+    public function getCreatedAt() { return $this->created_at; }
+    
+
     public function setId($id) { $this->id = $id; }
     public function setName($name) { $this->name = $name; }
     public function setFamName($fam_name) { $this->fam_name = $fam_name; }
@@ -54,6 +49,7 @@ class UserModel
     public function setPassword($password) { $this->password = $password; }
     public function setRole($role) { $this->role = $role; }
     public function setUserType($user_type) { $this->user_type = $user_type; }
+    public function setCreatedAt($created_at) { $this->created_at = $created_at; }
 
     public static function fromArray($data)
     {
@@ -68,6 +64,7 @@ class UserModel
         $user->setPassword($data['password'] ?? "");
         $user->setRole($data['role'] ?? "user");
         $user->setUserType($data['user_type'] ?? null);
+	$user->setCreatedAt($data['created_at'] ?? null);
 
         return $user;
     }
